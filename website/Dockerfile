@@ -1,24 +1,16 @@
 # =============================================================
-# Lumora website - Step 1
-# This Dockerfile packages the static site into a container.
+# Lumora website - production-ready
 # =============================================================
-
-# FROM = "start from this base image"
-# nginx:alpine is a tiny (~25MB) web server. We didn't have to
-# install nginx ourselves - someone already built this image
-# and put it on Docker Hub (the public image registry).
+# nginx + our HTML + a custom nginx config that proxies API
+# calls to the in-cluster API service.
+# =============================================================
 FROM nginx:alpine
 
-# COPY = "copy files from my project into the image"
-# Left side  = path on YOUR computer (relative to this Dockerfile)
-# Right side = path INSIDE the image
-# /usr/share/nginx/html is where nginx looks for files to serve.
+# Replace nginx's default config with ours (the one that proxies /api/*)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Static site files
 COPY index.html /usr/share/nginx/html/index.html
 COPY images/    /usr/share/nginx/html/images/
 
-# EXPOSE = "this container will listen on port 80"
-# This is documentation only - it doesn't actually open the port.
-# The real port opening happens at "docker run" time with -p.
 EXPOSE 80
-
-# No CMD needed - the nginx base image already knows how to start nginx.

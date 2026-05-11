@@ -776,9 +776,13 @@ document.querySelectorAll('#mobileMenu a').forEach(function(a){
 <!-- our second container (lumora-api).             -->
 <!-- ============================================= -->
 <script>
-  // The URL where our API lives. Because the browser is on
-  // the host machine (your computer), it uses localhost:8000.
-  const API_URL = "http://localhost:8000";
+  // The URL where our API lives.
+  // We use a relative path "/api" so the same code works:
+  //   - in local docker-compose (nginx proxies /api to lumora-api:8000)
+  //   - in Kubernetes (nginx proxies /api to the API Service)
+  //   - anywhere else (no hardcoded hostname!)
+  // This is the standard production pattern.
+  const API_URL = "/api";
 
   async function loadProfiles() {
     const grid = document.getElementById("profiles-grid");
