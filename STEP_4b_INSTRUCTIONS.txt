@@ -1,0 +1,170 @@
+==============================================================
+STEP 4 (revised) - CI/CD with GitHub Actions -> ghcr.io
+==============================================================
+
+WHAT'S NEW IN THIS FOLDER:
+  .github/workflows/ci.yml   <- THE PIPELINE
+  api/test_main.py           <- 5 unit tests
+  api/requirements.txt       <- now includes pytest + httpx
+  .gitignore                 <- keeps junk out of git
+  README.md                  <- repo overview
+
+Same as v3 underneath. The CI/CD layer is on top.
+
+==============================================================
+WHAT YOU NEED ALREADY (you already have these!)
+==============================================================
+
+* GitHub account (you have: Theflamingo-Pup)
+* Git installed on Windows
+  Check by opening a NEW terminal and running: git --version
+  If "not recognized", install from https://git-scm.com/download/win
+
+==============================================================
+PART A - Run the tests LOCALLY first (2 min)
+==============================================================
+
+Sanity check before going through GitHub:
+
+   cd "C:\Users\woo09\Desktop\software build\Lumora\lumora-step4b\api"
+   pip install -r requirements.txt
+   pytest -v
+
+You should see 5 tests pass. If they pass locally, they'll
+pass in CI.
+
+If you don't have pip on Windows directly, you can also run:
+
+   docker run --rm -v "%cd%":/app -w /app python:3.12-slim sh -c "pip install -r requirements.txt && pytest -v"
+
+(Run that from the api folder.)
+
+==============================================================
+PART B - Push to GitHub (5 min)
+==============================================================
+
+1) Open terminal in the project ROOT (not /api):
+       cd "C:\Users\woo09\Desktop\software build\Lumora\lumora-step4b"
+
+2) Initialize git and make first commit:
+       git init
+       git branch -M main
+       git add .
+       git commit -m "Initial Lumora microservices project"
+
+   First time using git? It'll ask for name+email:
+       git config --global user.name  "Your Name"
+       git config --global user.email "you@example.com"
+   Then re-run the commit.
+
+3) Create a new GitHub repo:
+   - Go to https://github.com -> click the "+" top right -> New repository
+   - Owner:        Theflamingo-Pup
+   - Repo name:    lumora
+   - Public        (keeps it free + lets us pull images without auth later)
+   - DO NOT initialize with README, .gitignore, or license
+     (we have those already - GitHub adding them would conflict)
+   - Click "Create repository"
+
+4) GitHub now shows you setup commands. Use the second block,
+   "...or push an existing repository". It looks like:
+
+       git remote add origin https://github.com/Theflamingo-Pup/lumora.git
+       git branch -M main
+       git push -u origin main
+
+   Run those.
+   - First push will pop up a Windows auth window. Sign in with
+     browser. GitHub remembers the credentials after that.
+   - You should see lines uploading files, ending in:
+       branch 'main' set up to track 'origin/main'
+
+5) Refresh the GitHub repo page. All your files are there.
+
+==============================================================
+PART C - Watch CI run automatically (5 min)
+==============================================================
+
+The push from Part B already triggered the workflow.
+
+1) On your repo page, click the "Actions" tab.
+
+2) You'll see "Lumora CI/CD" running (yellow dot) or finished
+   (green check). Click into it.
+
+3) You'll see TWO jobs side by side:
+       test                  - runs pytest
+       build-and-push        - builds + pushes images to ghcr.io
+                              (only runs after test passes)
+
+4) Click "test" -> expand "Run pytest" step. You'll see live
+   logs of pytest running on a GitHub-provided Linux VM.
+
+5) Click "build-and-push" -> watch each step. The "Build & push
+   API image" step is the interesting one - watch it transfer
+   layers to ghcr.io.
+
+6) Once both jobs are green, find your images:
+   - On your repo page, click the right sidebar at "Packages"
+     OR navigate to:
+         https://github.com/Theflamingo-Pup?tab=packages
+   - You should see lumora-api and lumora-web.
+   - Click one - you'll see all the tags (latest, plus the
+     commit SHA).
+
+==============================================================
+PART D - Pull your own image to prove the loop works
+==============================================================
+
+You can now pull the image that the robot built:
+
+   docker pull ghcr.io/theflamingo-pup/lumora-api:latest
+
+(Lowercase usernames in image names. ghcr.io is case-sensitive.)
+
+Run it:
+   docker run -p 8001:8000 -e DB_HOST=fake ghcr.io/theflamingo-pup/lumora-api:latest
+
+It'll fail to connect to a DB (no DB!) - that's expected.
+The point is: an image built in a GitHub datacenter is now
+running on your Windows machine. The full delivery loop works.
+
+==============================================================
+EXPERIMENTS TO ACTUALLY DO
+==============================================================
+
+A) Make a code change, push it, watch CI run.
+   - Open api/main.py
+   - Change the version="3.0.0" to version="3.0.1"
+   - Save, then:
+       git add .
+       git commit -m "bump version"
+       git push
+   - Refresh GitHub's Actions tab - new run appears.
+   - This is the developer's day-in-the-life now: push code,
+     CI does the rest.
+
+B) BREAK a test on purpose.
+   - In api/test_main.py, change:
+        assert body["status"] == "ok"
+     to:
+        assert body["status"] == "broken"
+   - git add . && git commit -m "intentional bug" && git push
+   - Watch test job FAIL (red X).
+   - Notice: build-and-push DID NOT RUN because needs:test failed.
+   - This is why CI matters. Bad code can't ship.
+   - Revert the change, push again, green returns.
+
+C) Look at the workflow file again.
+   Open .github/workflows/ci.yml. After watching it run, the
+   structure should make a lot more sense than it did before.
+
+==============================================================
+WHEN DONE
+==============================================================
+
+Tell Claude:
+   "step 4 done" - we move to Step 5: DEPLOY TO REAL KUBERNETES
+                   on DigitalOcean. Real cluster, real LB, real URL.
+   "broke at X" - paste the error from GitHub Actions logs
+   "question about X" - ask

@@ -1,0 +1,76 @@
+# =============================================================
+# docker-compose.yml - v3 with PostgreSQL
+# =============================================================
+# Three services now. The new "db" service is STATEFUL - it has
+# a volume so data survives container restarts.
+# =============================================================
+
+services:
+
+  # ---------- Service 1: the website (unchanged) ----------
+  web:
+    build: ./website
+    container_name: lumora-web
+    ports:
+      - "8090:80"
+    depends_on:
+      - api
+
+  # ---------- Service 2: the API (now talks to DB) ----------
+  api:
+    build: ./api
+    container_name: lumora-api
+    ports:
+      - "8000:8000"
+    environment:
+      # These show up as environment variables INSIDE the container.
+      # The Python code reads them via os.environ.
+      # The host "db" works because of Compose's internal DNS -
+      # "db" is the name of our database service below.
+      DB_HOST:     db
+      DB_PORT:     "5432"
+      DB_NAME:     lumora
+      DB_USER:     lumora_user
+      DB_PASSWORD: lumora_secret_2026
+    depends_on:
+      db:
+        condition: service_healthy   # wait for DB healthcheck to pass
+
+  # ---------- Service 3: PostgreSQL (NEW) ----------
+  db:
+    image: postgres:16-alpine        # official postgres image, no Dockerfile needed
+    container_name: lumora-db
+    environment:
+      # The postgres image reads these on first boot to set itself up.
+      POSTGRES_DB:       lumora
+      POSTGRES_USER:     lumora_user
+      POSTGRES_PASSWORD: lumora_secret_2026
+    volumes:
+      # 1. Named volume for the actual database files.
+      #    "postgres-data" is defined at the bottom of this file.
+      #    Mounted at /var/lib/postgresql/data, where postgres
+      #    keeps everything.
+      - postgres-data:/var/lib/postgresql/data
+      # 2. Mount our SQL init file. Postgres auto-runs anything
+      #    in /docker-entrypoint-initdb.d/ on first boot.
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Expose postgres on the host so you can connect with a
+      # DB GUI tool (DBeaver, TablePlus) if you want to poke around.
+      - "5432:5432"
+    healthcheck:
+      # Compose checks this. "api" waits for it to pass before starting.
+      test: ["CMD-SHELL", "pg_isready -U lumora_user -d lumora"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+# -------------------------------------------------------------
+# Volumes - declared at the top level
+# -------------------------------------------------------------
+volumes:
+  postgres-data:
+    # Docker manages this for us. The actual files live somewhere
+    # inside Docker Desktop's storage area (you don't need to care
+    # where). When the container is deleted, this volume stays.
+    # That's the whole point.

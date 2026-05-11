@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets (we'll create this for local dev)
+.env
+.env.local
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
