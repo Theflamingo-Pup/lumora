@@ -29,8 +29,8 @@ permissions:
 # ---------- Environment vars used in this workflow ----------
 env:
   REGISTRY: ghcr.io
-  # ${{ github.repository_owner }} = your GitHub username, lowercase
-  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  # ${{ vars.OWNER_LC || 'theflamingo-pup' }} = your GitHub username, lowercase
+  IMAGE_NAMESPACE: ${{ vars.OWNER_LC || 'theflamingo-pup' }}
 
 jobs:
 
