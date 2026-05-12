@@ -305,7 +305,7 @@ footer { background:var(--dark2); border-top:1px solid var(--border); padding:60
     <span id="liveClock">--:--:-- --</span>
     <div style="display:flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid rgba(0,198,215,.2);border-radius:20px">
       <span style="width:5px;height:5px;border-radius:50%;background:#00C6D7;box-shadow:0 0 6px #00C6D7"></span>
-      <span style="font-size:9px;color:#00C6D7;font-family:'Courier New',monospace;letter-spacing:1px">ONLINE · 2.1M PILGRIMS</span>
+      <span style="font-size:9px;color:#00C6D7;font-family:'Courier New',monospace;letter-spacing:1px">BUILDING IN PUBLIC · COMING SOON</span>
     </div>
   </div>
 </div>
@@ -535,7 +535,7 @@ footer { background:var(--dark2); border-top:1px solid var(--border); padding:60
     <h2 class="section-title">Measured by <span class="gradient-text">connections, not clicks.</span></h2>
     <p style="max-width:560px;margin:0 auto 48px">Lumora reports the metrics that actually matter — relationships started, not screen-time logged.</p>
     <div class="stats-row">
-      <div class="stat-box"><div class="stat-box-num">2.1M+</div><div class="stat-box-lbl">Active Pilgrims</div></div>
+      <div class="stat-box"><div class="stat-box-num">Soon</div><div class="stat-box-lbl">Active Pilgrims</div></div>
       <div class="stat-box"><div class="stat-box-num">14M+</div><div class="stat-box-lbl">Resonance Matches</div></div>
       <div class="stat-box"><div class="stat-box-num">320K+</div><div class="stat-box-lbl">First Dates</div></div>
       <div class="stat-box"><div class="stat-box-num">42K+</div><div class="stat-box-lbl">Relationships Started</div></div>
@@ -691,7 +691,7 @@ footer { background:var(--dark2); border-top:1px solid var(--border); padding:60
       <details class="faq-item"><summary class="faq-summary">What's a Resonance score?</summary><div class="faq-body">A 0-100 compatibility number on every potential match. Our Nebulizer engine reads your values, prompts, lifestyle, and intent — not just photos. It's the strongest predictor of who you'll actually want to talk to.</div></details>
       <details class="faq-item"><summary class="faq-summary">Are my conversations private?</summary><div class="faq-body">Hearth chats are end-to-end encrypted. Lumora can't read them. You can also enable Whisperlock on any thread to disable screenshots and notification previews.</div></details>
       <details class="faq-item"><summary class="faq-summary">Can I really delete everything?</summary><div class="faq-body">Yes. Pyre Deletion in your Halidom settings permanently wipes your Tessera, Hearths, photos, and message history within 30 days. We don't keep shadow profiles or sell your data, ever.</div></details>
-      <details class="faq-item"><summary class="faq-summary">Where is Lumora available?</summary><div class="faq-body">80+ cities across North America, Europe, the UK, Australia, and parts of Asia. New cities open monthly — use the city selector to check yours.</div></details>
+      <details class="faq-item"><summary class="faq-summary">Where is Lumora available?</summary><div class="faq-body">We are not live yet. Join the waitlist above and we will email you when beta opens in your region.</div></details>
     </div>
   </div>
 </section>
@@ -710,20 +710,42 @@ footer { background:var(--dark2); border-top:1px solid var(--border); padding:60
 </section>
 
 <!-- ============================================= -->
-<!-- LIVE PROFILES SECTION - powered by our API     -->
-<!-- This section is empty on page load. The JS at  -->
-<!-- the bottom of the file fetches data from the   -->
-<!-- API and fills it in. THIS is the new piece.    -->
+<!-- COMING SOON / WAITLIST SECTION                  -->
+<!-- Replaced the fake "live profiles" demo with    -->
+<!-- an honest "we're building this" message.       -->
 <!-- ============================================= -->
-<section id="live-profiles" style="background:linear-gradient(180deg, #0F1830 0%, #080E24 100%);">
+<section id="waitlist" style="background:linear-gradient(180deg, #0F1830 0%, #080E24 100%);">
   <div class="container">
-    <div style="text-align:center; margin-bottom:48px;">
-      <span class="section-label">LIVE FROM THE API</span>
-      <h2 class="section-title">Profiles near you <span class="gradient-text">right now</span></h2>
-      <p style="max-width:600px; margin:0 auto;">This data is fetched live from the Lumora API microservice running in its own container. Refresh the page to see it call the API again.</p>
-    </div>
-    <div id="profiles-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:20px;">
-      <p id="profiles-status" style="grid-column: 1 / -1; text-align:center; color: var(--text-muted);">Loading profiles from API...</p>
+    <div style="text-align:center; max-width:640px; margin:0 auto;">
+      <span class="section-label">COMING SOON</span>
+      <h2 class="section-title">Lumora is being built <span class="gradient-text">carefully</span></h2>
+      <p style="margin: 24px auto 40px;">
+        We're crafting a dating platform that prioritizes verified identity, real
+        conversations, and your time. No swipe spam, no fake profiles, no algorithms
+        engineered to keep you scrolling.
+      </p>
+      <p style="margin: 0 auto 40px; font-size: 0.95rem; color: var(--text-muted);">
+        Want early access? Drop your email and you'll be among the first to hear when we open beta signups.
+      </p>
+      <form id="waitlist-form" style="display:flex; flex-wrap:wrap; gap:12px; justify-content:center; align-items:center; max-width:520px; margin: 0 auto;">
+        <input
+          type="email"
+          id="waitlist-email"
+          placeholder="you@example.com"
+          required
+          style="flex:1; min-width:240px; padding:14px 18px; border-radius:12px; border:1px solid var(--border); background: rgba(255,255,255,0.04); color:#fff; font-size:1rem; outline:none;"
+        />
+        <button
+          type="submit"
+          style="padding:14px 28px; border-radius:12px; border:none; background: var(--grad); color:#fff; font-weight:600; font-size:1rem; cursor:pointer;"
+        >
+          Get early access
+        </button>
+      </form>
+      <p id="waitlist-status" style="margin-top:24px; min-height:1.5em; font-size:0.95rem;"></p>
+      <p style="margin-top: 48px; font-size: 0.85rem; color: var(--text-muted);">
+        🛠 Building publicly. No accounts, no matches, no live profiles yet.
+      </p>
     </div>
   </div>
 </section>
@@ -742,7 +764,7 @@ footer { background:var(--dark2); border-top:1px solid var(--border); padding:60
   </div>
   <div class="footer-bottom">
     <div>© 2026 Lumora, Inc. · Where connections spark.</div>
-    <div>80+ cities · 2.1M+ pilgrims · Made with care</div>
+    <div>Made with care · Built carefully</div>
   </div>
 </footer>
 
@@ -770,59 +792,31 @@ document.querySelectorAll('#mobileMenu a').forEach(function(a){
 });
 </script>
 <!-- ============================================= -->
-<!-- API CALL - fetch live profiles from the API   -->
-<!-- This runs in the BROWSER, not in the container. -->
-<!-- It calls the API at localhost:8000 which is    -->
-<!-- our second container (lumora-api).             -->
+<!-- WAITLIST FORM - front-end only for now         -->
+<!-- This just validates the email and shows a      -->
+<!-- "thanks" message. No backend yet.              -->
+<!-- Next session we'll wire it to a real list      -->
+<!-- (Mailchimp / ConvertKit / our own table).      -->
 <!-- ============================================= -->
 <script>
-  // The URL where our API lives.
-  // We use a relative path "/api" so the same code works:
-  //   - in local docker-compose (nginx proxies /api to lumora-api:8000)
-  //   - in Kubernetes (nginx proxies /api to the API Service)
-  //   - anywhere else (no hardcoded hostname!)
-  // This is the standard production pattern.
-  const API_URL = "/api";
+  document.getElementById("waitlist-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var emailInput = document.getElementById("waitlist-email");
+    var status     = document.getElementById("waitlist-status");
+    var email      = emailInput.value.trim();
 
-  async function loadProfiles() {
-    const grid = document.getElementById("profiles-grid");
-    const status = document.getElementById("profiles-status");
-
-    try {
-      // Call the API endpoint - this is the magic moment.
-      // The browser sends a GET request to our Python container.
-      const response = await fetch(API_URL + "/profiles");
-      if (!response.ok) throw new Error("API returned " + response.status);
-
-      const data = await response.json();
-      // data looks like: { count: 6, profiles: [...] }
-
-      // Wipe the "loading" message and build profile cards.
-      grid.innerHTML = "";
-      data.profiles.forEach(profile => {
-        const card = document.createElement("div");
-        card.style.cssText = "background:var(--card-bg); border:1px solid var(--border); border-radius:16px; padding:24px; transition:var(--transition);";
-        card.innerHTML = `
-          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-            <div style="width:48px; height:48px; border-radius:50%; background:var(--grad); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:1.2rem;">${profile.name[0]}</div>
-            <div>
-              <h3 style="font-size:1.1rem;">${profile.name}, ${profile.age}</h3>
-              <p style="font-size:0.85rem; margin:0;">${profile.distance_mi} miles away</p>
-            </div>
-          </div>
-          <p style="font-size:0.9rem;">${profile.bio}</p>
-        `;
-        grid.appendChild(card);
-      });
-    } catch (err) {
-      // If the API isn't running, show a friendly error.
-      status.innerHTML = `⚠️ Could not reach the API at ${API_URL}.<br><span style="font-size:0.85rem;">Is the lumora-api container running? Error: ${err.message}</span>`;
+    // Simple client-side check
+    if (!email || email.indexOf("@") === -1) {
+      status.textContent = "Please enter a valid email address.";
       status.style.color = "#FF4D8D";
+      return;
     }
-  }
 
-  // Run loadProfiles() when the page finishes loading.
-  loadProfiles();
+    // For now we just acknowledge. Real persistence comes next session.
+    status.textContent = "💌 You're on the list. We'll be in touch when beta opens.";
+    status.style.color = "#22D3EE";
+    emailInput.value = "";
+  });
 </script>
 </body>
 </html>
