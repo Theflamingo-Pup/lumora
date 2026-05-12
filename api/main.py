@@ -12,8 +12,10 @@ import os
 import time
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import psycopg                              # the postgres driver
 from psycopg.rows import dict_row           # makes rows behave like dicts
+from psycopg import errors as pg_errors
 
 app = FastAPI(title="Lumora Profiles API", version="3.0.0")
 
@@ -117,3 +119,55 @@ def create_profile(name: str, age: int, bio: str = "", distance_mi: int = 0):
         ).fetchone()
         conn.commit()
     return new_row
+
+
+# =============================================================
+# WAITLIST - "get early access" emails from the Coming Soon page
+# =============================================================
+# Why a separate table from profiles:
+#   waitlist emails are NOT user accounts - they have no
+#   password, no profile, no signup verification. They're just
+#   leads. When Lumora opens beta, we'll email them to invite
+#   them to sign up properly.
+# =============================================================
+
+class WaitlistSignup(BaseModel):
+    """The body the client POSTs to /waitlist."""
+    email: str
+
+
+@app.post("/waitlist")
+def add_to_waitlist(payload: WaitlistSignup):
+    """Add an email to the waitlist.
+    
+    Returns the same success message whether the email is new
+    OR was already on the list. This is intentional - it
+    prevents anyone from probing 'is this email registered?'
+    """
+    # Normalize the email - trim + lowercase
+    email = payload.email.strip().lower()
+
+    # Cheap format check - just verify @ and . are present.
+    # Real validation requires sending a verification email,
+    # which is Phase 1b territory.
+    if "@" not in email or "." not in email or len(email) < 5 or len(email) > 255:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
+
+    try:
+        with get_connection() as conn:
+            conn.execute(
+                "INSERT INTO waitlist (email) VALUES (%s)",
+                (email,),
+            )
+            conn.commit()
+    except pg_errors.UniqueViolation:
+        # Email already on the list. Return the same success
+        # message as a new signup - we don't want to leak which
+        # emails are registered. This is a small privacy win.
+        return {"status": "ok", "message": "You're on the list"}
+    except Exception as e:
+        # Something else went wrong - log it and return generic 500
+        print(f"[waitlist] DB error: {e}")
+        raise HTTPException(status_code=500, detail="Could not save right now, try again later")
+
+    return {"status": "ok", "message": "You're on the list"}

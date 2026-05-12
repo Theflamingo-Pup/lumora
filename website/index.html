@@ -792,30 +792,57 @@ document.querySelectorAll('#mobileMenu a').forEach(function(a){
 });
 </script>
 <!-- ============================================= -->
-<!-- WAITLIST FORM - front-end only for now         -->
-<!-- This just validates the email and shows a      -->
-<!-- "thanks" message. No backend yet.              -->
-<!-- Next session we'll wire it to a real list      -->
-<!-- (Mailchimp / ConvertKit / our own table).      -->
+<!-- WAITLIST FORM - now posts to the real API      -->
+<!-- POST /api/waitlist  body: {email}              -->
+<!-- nginx proxies /api/* to the in-cluster API     -->
+<!-- which writes to postgres.                      -->
 <!-- ============================================= -->
 <script>
-  document.getElementById("waitlist-form").addEventListener("submit", function (e) {
+  document.getElementById("waitlist-form").addEventListener("submit", async function (e) {
     e.preventDefault();
     var emailInput = document.getElementById("waitlist-email");
     var status     = document.getElementById("waitlist-status");
+    var submitBtn  = document.querySelector("#waitlist-form button[type='submit']");
     var email      = emailInput.value.trim();
 
     // Simple client-side check
-    if (!email || email.indexOf("@") === -1) {
+    if (!email || email.indexOf("@") === -1 || email.indexOf(".") === -1) {
       status.textContent = "Please enter a valid email address.";
       status.style.color = "#FF4D8D";
       return;
     }
 
-    // For now we just acknowledge. Real persistence comes next session.
-    status.textContent = "💌 You're on the list. We'll be in touch when beta opens.";
-    status.style.color = "#22D3EE";
-    emailInput.value = "";
+    // Disable while waiting so impatient users don't double-submit
+    submitBtn.disabled = true;
+    var originalLabel = submitBtn.textContent;
+    submitBtn.textContent = "Adding...";
+    status.textContent = "";
+
+    try {
+      var response = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email }),
+      });
+
+      if (response.ok) {
+        status.textContent = "💌 You're on the list. We'll be in touch when beta opens.";
+        status.style.color = "#22D3EE";
+        emailInput.value = "";
+      } else if (response.status === 400) {
+        status.textContent = "Please enter a valid email address.";
+        status.style.color = "#FF4D8D";
+      } else {
+        status.textContent = "Something went wrong. Try again in a moment.";
+        status.style.color = "#FF4D8D";
+      }
+    } catch (err) {
+      status.textContent = "Couldn't reach the server. Try again in a moment.";
+      status.style.color = "#FF4D8D";
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+    }
   });
 </script>
 </body>

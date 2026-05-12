@@ -98,3 +98,43 @@ def test_get_profile_returns_404_when_not_found():
         response = client.get("/profiles/9999")
 
     assert response.status_code == 404
+
+
+# -------------------------------------------------------------
+# Waitlist endpoint tests
+# -------------------------------------------------------------
+
+def test_waitlist_accepts_valid_email():
+    """POST /waitlist with a valid email should succeed and persist."""
+    with patch("main.get_connection", return_value=make_fake_conn()):
+        response = client.post("/waitlist", json={"email": "test@example.com"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_waitlist_rejects_obviously_invalid_email():
+    """POST /waitlist with garbage should return 400."""
+    response = client.post("/waitlist", json={"email": "notanemail"})
+    assert response.status_code == 400
+
+
+def test_waitlist_rejects_empty_email():
+    """Blank email is rejected."""
+    response = client.post("/waitlist", json={"email": "   "})
+    assert response.status_code == 400
+
+
+def test_waitlist_returns_success_on_duplicate_email():
+    """Re-submitting an existing email should still return ok
+    (we don't want to leak which emails are already on the list)."""
+    from psycopg import errors as pg_errors
+
+    fake_conn = make_fake_conn()
+    fake_conn.execute.side_effect = pg_errors.UniqueViolation("duplicate")
+
+    with patch("main.get_connection", return_value=fake_conn):
+        response = client.post("/waitlist", json={"email": "existing@example.com"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
