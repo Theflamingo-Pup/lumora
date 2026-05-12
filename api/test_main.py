@@ -14,6 +14,12 @@
 # tests run fast and offline. This is normal for unit tests.
 # =============================================================
 
+import os
+# Set JWT_SECRET BEFORE importing main, because auth.py reads it
+# at import time. In CI, this env var won't be set, so we provide
+# a deterministic test value here.
+os.environ.setdefault("JWT_SECRET", "test-secret-do-not-use-in-production-32-bytes-min")
+
 import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
@@ -138,3 +144,135 @@ def test_waitlist_returns_success_on_duplicate_email():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+# -------------------------------------------------------------
+# Auth endpoint tests - Phase 1
+# -------------------------------------------------------------
+
+def test_signup_with_valid_credentials_returns_token():
+    """POST /auth/signup with a fresh email+password creates a
+    user and returns a JWT."""
+    fake_row = {"id": 42}
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result=fake_row)):
+        response = client.post(
+            "/auth/signup",
+            json={"email": "new@example.com", "password": "longenoughpw"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["token_type"] == "bearer"
+    assert body["user_id"] == 42
+    assert isinstance(body["access_token"], str)
+    assert len(body["access_token"]) > 20   # JWTs are long
+
+
+def test_signup_rejects_short_password():
+    """Passwords under 8 chars should be rejected by Pydantic."""
+    response = client.post(
+        "/auth/signup",
+        json={"email": "user@example.com", "password": "short"},
+    )
+    assert response.status_code == 422   # Pydantic validation
+
+
+def test_signup_rejects_bad_email_shape():
+    """Email with no @ should 400."""
+    response = client.post(
+        "/auth/signup",
+        json={"email": "notanemail", "password": "longenoughpw"},
+    )
+    assert response.status_code == 400
+
+
+def test_signup_returns_409_on_duplicate_email():
+    """Trying to register an already-taken email should 409."""
+    from psycopg import errors as pg_errors
+
+    fake_conn = make_fake_conn()
+    fake_conn.execute.side_effect = pg_errors.UniqueViolation("duplicate")
+
+    with patch("main.get_connection", return_value=fake_conn):
+        response = client.post(
+            "/auth/signup",
+            json={"email": "taken@example.com", "password": "longenoughpw"},
+        )
+    assert response.status_code == 409
+
+
+def test_login_with_correct_password_returns_token():
+    """Logging in with the right password returns a JWT."""
+    # Pre-hash the password so verify_password actually succeeds
+    from auth import hash_password
+    correct_hash = hash_password("longenoughpw")
+    fake_row = {"id": 7, "password_hash": correct_hash}
+
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result=fake_row)):
+        response = client.post(
+            "/auth/login",
+            json={"email": "real@example.com", "password": "longenoughpw"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == 7
+
+
+def test_login_with_wrong_password_returns_401():
+    """Wrong password should 401 with a generic error."""
+    from auth import hash_password
+    correct_hash = hash_password("the-real-password")
+    fake_row = {"id": 7, "password_hash": correct_hash}
+
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result=fake_row)):
+        response = client.post(
+            "/auth/login",
+            json={"email": "real@example.com", "password": "wrong-guess-pw"},
+        )
+
+    assert response.status_code == 401
+    # Should be a generic message that doesn't reveal which part failed
+    assert "Invalid email or password" in response.json()["detail"]
+
+
+def test_login_with_unknown_email_returns_401():
+    """Email not in DB should ALSO 401 with the same generic msg
+    (to avoid leaking which emails are registered)."""
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result=None)):
+        response = client.post(
+            "/auth/login",
+            json={"email": "nobody@example.com", "password": "longenoughpw"},
+        )
+    assert response.status_code == 401
+    assert "Invalid email or password" in response.json()["detail"]
+
+
+def test_me_without_token_returns_401():
+    """GET /me without an Authorization header should 401."""
+    response = client.get("/me")
+    assert response.status_code == 401
+
+
+def test_me_with_garbage_token_returns_401():
+    """GET /me with a bogus token should 401."""
+    response = client.get("/me", headers={"Authorization": "Bearer not-a-real-jwt"})
+    assert response.status_code == 401
+
+
+def test_me_with_valid_token_returns_user_info():
+    """GET /me with a real JWT returns the user's row."""
+    from auth import create_access_token
+    token = create_access_token(user_id=99)
+
+    fake_user = {
+        "id": 99,
+        "email": "user@example.com",
+        "email_verified": False,
+        "created_at": "2026-05-12T19:00:00",
+    }
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result=fake_user)):
+        response = client.get("/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    assert response.json()["id"] == 99
+    assert response.json()["email"] == "user@example.com"

@@ -2,6 +2,10 @@ fastapi==0.115.0
 uvicorn[standard]==0.32.0
 psycopg[binary]==3.2.3
 
+# Phase 1 - auth dependencies
+argon2-cffi==23.1.0                    # password hashing (argon2id)
+python-jose[cryptography]==3.3.0       # JWT (HS256)
+
 # Test-only dependencies. We include them here for simplicity,
 # but a more polished project would split them into requirements-dev.txt.
 pytest==8.3.3

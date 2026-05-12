@@ -10,12 +10,22 @@
 
 import os
 import time
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import psycopg                              # the postgres driver
 from psycopg.rows import dict_row           # makes rows behave like dicts
 from psycopg import errors as pg_errors
+
+# Auth helpers (password hashing + JWT) live in their own module.
+# Importing this also enforces JWT_SECRET being set in the env,
+# because auth.py reads it at import time.
+from auth import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    current_user_id,
+)
 
 app = FastAPI(title="Lumora Profiles API", version="3.0.0")
 
@@ -171,3 +181,142 @@ def add_to_waitlist(payload: WaitlistSignup):
         raise HTTPException(status_code=500, detail="Could not save right now, try again later")
 
     return {"status": "ok", "message": "You're on the list"}
+
+
+# =============================================================
+# AUTH - real user accounts (Phase 1)
+# =============================================================
+# Three endpoints:
+#   POST /auth/signup   - create an account
+#   POST /auth/login    - exchange email+password for a JWT
+#   GET  /me            - return current user's info (JWT protected)
+# =============================================================
+
+class SignupRequest(BaseModel):
+    """Body for POST /auth/signup."""
+    email:    str = Field(..., min_length=5, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    """Body for POST /auth/login."""
+    email:    str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    """Returned by both signup and login on success."""
+    access_token: str
+    token_type:   str = "bearer"
+    user_id:      int
+
+
+def _normalize_email(email: str) -> str:
+    """Trim + lowercase. Same convention as the waitlist."""
+    return email.strip().lower()
+
+
+def _is_valid_email_shape(email: str) -> bool:
+    """Cheap shape check. We don't do full RFC 5322 validation -
+    real validation only happens via an email-verification flow,
+    which is Phase 1b territory."""
+    return "@" in email and "." in email and 5 <= len(email) <= 255
+
+
+@app.post("/auth/signup", response_model=AuthResponse)
+def signup(payload: SignupRequest):
+    """Create a new user account.
+    
+    On success returns a JWT the client should send as
+    Authorization: Bearer <token> on subsequent requests.
+    """
+    email = _normalize_email(payload.email)
+
+    if not _is_valid_email_shape(email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
+
+    # Hash the password BEFORE the DB call. If hashing fails for
+    # any reason we don't even attempt a write.
+    password_hash = hash_password(payload.password)
+
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                """INSERT INTO users (email, password_hash)
+                   VALUES (%s, %s)
+                   RETURNING id""",
+                (email, password_hash),
+            ).fetchone()
+            conn.commit()
+    except pg_errors.UniqueViolation:
+        # Email already taken. We DO return a clear error here
+        # (unlike the waitlist) - signup is intentionally a
+        # different UX from "join the list."
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    except Exception as e:
+        print(f"[signup] DB error: {e}")
+        raise HTTPException(status_code=500, detail="Could not create account, try again later")
+
+    user_id = row["id"]
+    token   = create_access_token(user_id)
+    return AuthResponse(access_token=token, user_id=user_id)
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+def login(payload: LoginRequest):
+    """Exchange email+password for a JWT.
+    
+    SECURITY: always return the same generic error message for
+    'no such user' and 'wrong password'. Distinguishing them
+    leaks which emails are registered.
+    """
+    email = _normalize_email(payload.email)
+
+    GENERIC_ERROR = HTTPException(status_code=401, detail="Invalid email or password")
+
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, password_hash FROM users WHERE email = %s",
+                (email,),
+            ).fetchone()
+    except Exception as e:
+        print(f"[login] DB error: {e}")
+        raise HTTPException(status_code=500, detail="Could not log in right now, try again later")
+
+    if row is None:
+        # User not found - still do a hash to keep timing consistent
+        # so attackers can't tell "no such email" vs "wrong password"
+        # by timing the response. Defense in depth.
+        verify_password(payload.password, "$argon2id$v=19$m=65536,t=3,p=4$" + "A" * 22 + "$" + "A" * 43)
+        raise GENERIC_ERROR
+
+    if not verify_password(payload.password, row["password_hash"]):
+        raise GENERIC_ERROR
+
+    user_id = row["id"]
+    token   = create_access_token(user_id)
+    return AuthResponse(access_token=token, user_id=user_id)
+
+
+@app.get("/me")
+def get_me(user_id: int = Depends(current_user_id)):
+    """Return the current authenticated user's info.
+    
+    Requires Authorization: Bearer <token> header.
+    FastAPI auto-rejects with 401 if missing/invalid via
+    the current_user_id dependency.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT id, email, email_verified, created_at
+               FROM users
+               WHERE id = %s""",
+            (user_id,),
+        ).fetchone()
+
+    if row is None:
+        # Token is valid but user has been deleted. Treat as auth failure.
+        raise HTTPException(status_code=401, detail="User no longer exists")
+
+    return row
