@@ -28,6 +28,17 @@ from auth import (
     current_user_id,
 )
 
+# Photo storage (R2) helpers. Importing this enforces all R2_*
+# env vars being set, same enforcement pattern as auth.
+from photos import (
+    ALLOWED_MIMES,
+    create_upload_url,
+    object_exists,
+    delete_object,
+    public_url_for,
+    key_from_url,
+)
+
 app = FastAPI(title="Lumora Profiles API", version="3.0.0")
 
 app.add_middleware(
@@ -352,6 +363,7 @@ def get_my_profile(user_id: int = Depends(current_user_id)):
         row = conn.execute(
             """SELECT user_id, display_name, age, bio, location_city,
                       looking_for_min_age, looking_for_max_age,
+                      photo_url,
                       created_at, updated_at
                FROM profiles
                WHERE user_id = %s""",
@@ -400,6 +412,7 @@ def upsert_my_profile(
                        updated_at          = NOW()
                    RETURNING user_id, display_name, age, bio, location_city,
                              looking_for_min_age, looking_for_max_age,
+                             photo_url,
                              created_at, updated_at""",
                 (
                     user_id, payload.display_name, payload.age, payload.bio,
@@ -435,5 +448,158 @@ def delete_my_profile(user_id: int = Depends(current_user_id)):
 
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="No profile to delete")
+
+    return {"status": "deleted"}
+
+
+# =============================================================
+# PROFILE PHOTOS - Phase 2b
+# =============================================================
+# 3 endpoints, all auth-protected:
+#   POST   /me/photo/upload-url   request a signed URL to upload to R2
+#   POST   /me/photo/confirm      after upload, save the URL to profile
+#   DELETE /me/photo              remove photo from profile + R2
+#
+# The upload itself happens BROWSER -> R2 directly. We never see
+# the photo bytes. That's the whole point of presigned URLs.
+# =============================================================
+
+class UploadUrlRequest(BaseModel):
+    """Body for POST /me/photo/upload-url."""
+    content_type: str = Field(..., max_length=64)
+
+
+class ConfirmRequest(BaseModel):
+    """Body for POST /me/photo/confirm. Contains the object key
+    that the browser uploaded to (from the previous upload-url
+    response)."""
+    key: str = Field(..., min_length=10, max_length=500)
+
+
+@app.post("/me/photo/upload-url")
+def get_upload_url(
+    payload: UploadUrlRequest,
+    user_id: int = Depends(current_user_id),
+):
+    """Get a presigned URL the browser can PUT the photo to.
+    
+    The browser then does:
+        PUT <upload_url>
+        Content-Type: <whatever they asked for>
+        <binary photo bytes>
+    
+    R2 verifies the signature on the URL and stores the object.
+    """
+    if payload.content_type not in ALLOWED_MIMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Content-Type must be one of: {sorted(ALLOWED_MIMES)}",
+        )
+
+    try:
+        result = create_upload_url(user_id=user_id, content_type=payload.content_type)
+    except Exception as e:
+        print(f"[upload-url] failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not generate upload URL")
+
+    return result
+
+
+@app.post("/me/photo/confirm")
+def confirm_photo(
+    payload: ConfirmRequest,
+    user_id: int = Depends(current_user_id),
+):
+    """Browser tells us 'I finished uploading, here's the key'.
+    
+    We verify the object actually exists in R2, then save the
+    public URL into the user's profile. If they had a previous
+    photo, we delete the old one from R2 to avoid orphans.
+    
+    SECURITY: we verify the key starts with users/<user_id>/ so
+    a user can't claim someone else's uploaded object.
+    """
+    expected_prefix = f"users/{user_id}/"
+    if not payload.key.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="Invalid object key for this user")
+
+    # Verify the upload actually happened
+    if not object_exists(payload.key):
+        raise HTTPException(
+            status_code=404,
+            detail="Object not found in storage. Did the upload finish?",
+        )
+
+    photo_url = public_url_for(payload.key)
+
+    # Get the OLD photo URL (if any) so we can delete it from R2
+    # after the DB update succeeds.
+    try:
+        with get_connection() as conn:
+            old_row = conn.execute(
+                "SELECT photo_url FROM profiles WHERE user_id = %s",
+                (user_id,),
+            ).fetchone()
+
+            if old_row is None:
+                # No profile yet. The user has to create their profile
+                # (PUT /me/profile) before they can attach a photo.
+                raise HTTPException(
+                    status_code=400,
+                    detail="Create your profile first (PUT /me/profile) before adding a photo",
+                )
+
+            old_url = old_row.get("photo_url")
+
+            # Update with the new photo URL
+            conn.execute(
+                "UPDATE profiles SET photo_url = %s, updated_at = NOW() WHERE user_id = %s",
+                (photo_url, user_id),
+            )
+            conn.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[confirm] DB error: {e}")
+        raise HTTPException(status_code=500, detail="Could not save photo URL")
+
+    # Best-effort: delete the old photo from R2 (don't fail the
+    # request if this errors - the DB is already updated).
+    if old_url:
+        old_key = key_from_url(old_url)
+        if old_key:
+            delete_object(old_key)
+
+    return {"photo_url": photo_url}
+
+
+@app.delete("/me/photo")
+def delete_photo(user_id: int = Depends(current_user_id)):
+    """Remove the user's photo entirely.
+    
+    Clears photo_url in the profile, and deletes the object
+    from R2. Returns 404 if there was no photo to delete.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT photo_url FROM profiles WHERE user_id = %s",
+            (user_id,),
+        ).fetchone()
+
+        if row is None or row.get("photo_url") is None:
+            raise HTTPException(status_code=404, detail="No photo to delete")
+
+        old_url = row["photo_url"]
+
+        conn.execute(
+            "UPDATE profiles SET photo_url = NULL, updated_at = NOW() WHERE user_id = %s",
+            (user_id,),
+        )
+        conn.commit()
+
+    # Delete from R2 (best effort)
+    old_key = key_from_url(old_url)
+    if old_key:
+        delete_object(old_key)
 
     return {"status": "deleted"}

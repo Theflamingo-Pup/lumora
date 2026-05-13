@@ -20,6 +20,14 @@ import os
 # a deterministic test value here.
 os.environ.setdefault("JWT_SECRET", "test-secret-do-not-use-in-production-32-bytes-min")
 
+# Same trick for the R2 env vars - photos.py reads them at import.
+# We use fake values; tests mock out the actual boto3 calls.
+os.environ.setdefault("R2_ACCESS_KEY_ID",     "test-key-id")
+os.environ.setdefault("R2_SECRET_ACCESS_KEY", "test-secret-key")
+os.environ.setdefault("R2_ENDPOINT",          "https://example.r2.cloudflarestorage.com")
+os.environ.setdefault("R2_BUCKET",            "test-bucket")
+os.environ.setdefault("R2_PUBLIC_BASE",       "https://pub-test.r2.dev")
+
 import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
@@ -386,4 +394,88 @@ def test_delete_profile_returns_404_when_no_profile():
 
     with patch("main.get_connection", return_value=fake_conn):
         response = client.delete("/me/profile", headers=_auth_headers(user_id=1))
+    assert response.status_code == 404
+
+
+# -------------------------------------------------------------
+# Photo endpoint tests - Phase 2b
+# -------------------------------------------------------------
+
+def test_upload_url_requires_auth():
+    """POST /me/photo/upload-url without token -> 401."""
+    response = client.post("/me/photo/upload-url", json={"content_type": "image/jpeg"})
+    assert response.status_code == 401
+
+
+def test_upload_url_rejects_disallowed_content_type():
+    """Random content types like text/html should be rejected."""
+    response = client.post(
+        "/me/photo/upload-url",
+        headers=_auth_headers(user_id=1),
+        json={"content_type": "text/html"},
+    )
+    assert response.status_code == 400
+
+
+def test_upload_url_returns_presigned_url_for_image():
+    """Valid request returns the upload URL + key."""
+    response = client.post(
+        "/me/photo/upload-url",
+        headers=_auth_headers(user_id=1),
+        json={"content_type": "image/jpeg"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "upload_url" in body
+    assert "key" in body
+    assert body["expires_in"] == 300
+    # The key should start with users/<user_id>/
+    assert body["key"].startswith("users/1/")
+    # It should be a JPEG by extension
+    assert body["key"].endswith(".jpg")
+
+
+def test_confirm_rejects_key_from_another_user():
+    """A logged-in user can't claim someone else's upload."""
+    response = client.post(
+        "/me/photo/confirm",
+        headers=_auth_headers(user_id=1),
+        json={"key": "users/999/profile-abcd.jpg"},
+    )
+    assert response.status_code == 400
+
+
+def test_confirm_rejects_nonexistent_object():
+    """If R2 says the object doesn't exist, we 404."""
+    with patch("main.object_exists", return_value=False):
+        response = client.post(
+            "/me/photo/confirm",
+            headers=_auth_headers(user_id=1),
+            json={"key": "users/1/profile-abcd.jpg"},
+        )
+    assert response.status_code == 404
+
+
+def test_confirm_requires_existing_profile():
+    """User must have created a profile first before adding a photo."""
+    with patch("main.object_exists", return_value=True), \
+         patch("main.get_connection", return_value=make_fake_conn(fetchone_result=None)):
+        response = client.post(
+            "/me/photo/confirm",
+            headers=_auth_headers(user_id=1),
+            json={"key": "users/1/profile-abcd.jpg"},
+        )
+    assert response.status_code == 400
+
+
+def test_delete_photo_requires_auth():
+    """DELETE /me/photo without token -> 401."""
+    response = client.delete("/me/photo")
+    assert response.status_code == 401
+
+
+def test_delete_photo_returns_404_when_no_photo():
+    """User with no photo -> 404."""
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result={"photo_url": None})):
+        response = client.delete("/me/photo", headers=_auth_headers(user_id=1))
     assert response.status_code == 404
