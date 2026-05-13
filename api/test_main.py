@@ -276,3 +276,114 @@ def test_me_with_valid_token_returns_user_info():
     assert response.status_code == 200
     assert response.json()["id"] == 99
     assert response.json()["email"] == "user@example.com"
+
+
+# -------------------------------------------------------------
+# Profile endpoint tests - Phase 2a
+# -------------------------------------------------------------
+# These tests build on the auth tests: every /me/profile call
+# needs a valid token. We use the helpers from auth.py to mint
+# real tokens for our test users.
+
+def _auth_headers(user_id: int = 1):
+    """Create an Authorization header with a valid JWT for the given user."""
+    from auth import create_access_token
+    return {"Authorization": f"Bearer {create_access_token(user_id)}"}
+
+
+def test_get_profile_without_token_returns_401():
+    """All /me/profile endpoints must require auth."""
+    response = client.get("/me/profile")
+    assert response.status_code == 401
+
+
+def test_get_profile_returns_404_when_not_yet_created():
+    """A user with no profile gets a 404, not a 500."""
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result=None)):
+        response = client.get("/me/profile", headers=_auth_headers(user_id=1))
+    assert response.status_code == 404
+
+
+def test_put_profile_creates_when_none_exists():
+    """First PUT for a user creates their profile."""
+    fake_returned = {
+        "user_id": 1,
+        "display_name": "Waris",
+        "age": 35,
+        "bio": "Engineer building Lumora",
+        "location_city": "Windsor Mill",
+        "looking_for_min_age": 22,
+        "looking_for_max_age": 45,
+        "created_at": "2026-05-13T06:00:00",
+        "updated_at": "2026-05-13T06:00:00",
+    }
+    with patch("main.get_connection", return_value=make_fake_conn(fetchone_result=fake_returned)):
+        response = client.put(
+            "/me/profile",
+            headers=_auth_headers(user_id=1),
+            json={
+                "display_name": "Waris",
+                "age": 35,
+                "bio": "Engineer building Lumora",
+                "location_city": "Windsor Mill",
+                "looking_for_min_age": 22,
+                "looking_for_max_age": 45,
+            },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["display_name"] == "Waris"
+    assert body["age"] == 35
+
+
+def test_put_profile_rejects_underage():
+    """Pydantic validation must reject age < 18 before reaching the DB."""
+    response = client.put(
+        "/me/profile",
+        headers=_auth_headers(user_id=1),
+        json={"display_name": "Tooyoung", "age": 17},
+    )
+    assert response.status_code == 422   # Pydantic validation
+
+
+def test_put_profile_rejects_invalid_age_range_pref():
+    """min_age > max_age is logical nonsense."""
+    response = client.put(
+        "/me/profile",
+        headers=_auth_headers(user_id=1),
+        json={
+            "display_name": "Waris",
+            "age": 35,
+            "looking_for_min_age": 50,
+            "looking_for_max_age": 30,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_put_profile_rejects_empty_display_name():
+    """Display name must be at least 1 character."""
+    response = client.put(
+        "/me/profile",
+        headers=_auth_headers(user_id=1),
+        json={"display_name": "", "age": 25},
+    )
+    assert response.status_code == 422
+
+
+def test_delete_profile_requires_auth():
+    """DELETE /me/profile without token returns 401."""
+    response = client.delete("/me/profile")
+    assert response.status_code == 401
+
+
+def test_delete_profile_returns_404_when_no_profile():
+    """Deleting a non-existent profile returns 404, not 500."""
+    fake_conn = make_fake_conn()
+    fake_result = MagicMock()
+    fake_result.rowcount = 0
+    fake_conn.execute.return_value = fake_result
+
+    with patch("main.get_connection", return_value=fake_conn):
+        response = client.delete("/me/profile", headers=_auth_headers(user_id=1))
+    assert response.status_code == 404

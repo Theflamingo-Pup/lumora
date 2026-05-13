@@ -10,6 +10,7 @@
 
 import os
 import time
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -320,3 +321,119 @@ def get_me(user_id: int = Depends(current_user_id)):
         raise HTTPException(status_code=401, detail="User no longer exists")
 
     return row
+
+
+# =============================================================
+# PROFILES - real user-owned profiles (Phase 2a)
+# =============================================================
+# 3 endpoints, all auth-protected:
+#   GET    /me/profile   - view your profile (or 404 if none)
+#   PUT    /me/profile   - create or update your profile
+#   DELETE /me/profile   - delete your profile
+#
+# Note: there's NO endpoint here for viewing OTHER users'
+# profiles. That's intentional - it's Phase 3 (discovery feed).
+# =============================================================
+
+class ProfileWrite(BaseModel):
+    """Body for PUT /me/profile (create or update)."""
+    display_name:        str           = Field(..., min_length=1, max_length=50)
+    age:                 int           = Field(..., ge=18, le=120)
+    bio:                 Optional[str] = Field(None, max_length=2000)
+    location_city:       Optional[str] = Field(None, max_length=100)
+    looking_for_min_age: int           = Field(18, ge=18, le=120)
+    looking_for_max_age: int           = Field(99, ge=18, le=120)
+
+
+@app.get("/me/profile")
+def get_my_profile(user_id: int = Depends(current_user_id)):
+    """Return the authenticated user's profile, or 404 if none yet."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT user_id, display_name, age, bio, location_city,
+                      looking_for_min_age, looking_for_max_age,
+                      created_at, updated_at
+               FROM profiles
+               WHERE user_id = %s""",
+            (user_id,),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="No profile yet. Use PUT /me/profile to create one.")
+    return row
+
+
+@app.put("/me/profile")
+def upsert_my_profile(
+    payload: ProfileWrite,
+    user_id: int = Depends(current_user_id),
+):
+    """Create OR update the authenticated user's profile.
+    
+    UPSERT pattern: if no profile exists for this user, INSERT.
+    If one exists, UPDATE in place. The user_id PRIMARY KEY makes
+    this safe - we can never accidentally create two profiles for
+    the same user.
+    """
+    # Cross-field check: min age can't exceed max age
+    if payload.looking_for_min_age > payload.looking_for_max_age:
+        raise HTTPException(
+            status_code=400,
+            detail="looking_for_min_age must be <= looking_for_max_age",
+        )
+
+    try:
+        with get_connection() as conn:
+            # ON CONFLICT (user_id) DO UPDATE is postgres "upsert"
+            row = conn.execute(
+                """INSERT INTO profiles (
+                       user_id, display_name, age, bio, location_city,
+                       looking_for_min_age, looking_for_max_age
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (user_id) DO UPDATE SET
+                       display_name        = EXCLUDED.display_name,
+                       age                 = EXCLUDED.age,
+                       bio                 = EXCLUDED.bio,
+                       location_city       = EXCLUDED.location_city,
+                       looking_for_min_age = EXCLUDED.looking_for_min_age,
+                       looking_for_max_age = EXCLUDED.looking_for_max_age,
+                       updated_at          = NOW()
+                   RETURNING user_id, display_name, age, bio, location_city,
+                             looking_for_min_age, looking_for_max_age,
+                             created_at, updated_at""",
+                (
+                    user_id, payload.display_name, payload.age, payload.bio,
+                    payload.location_city, payload.looking_for_min_age,
+                    payload.looking_for_max_age,
+                ),
+            ).fetchone()
+            conn.commit()
+    except pg_errors.CheckViolation as e:
+        # DB-level constraint rejected the row (e.g. age check).
+        # This is defense in depth - Pydantic should have caught
+        # it first, but if a bug let it through, the DB stops it.
+        raise HTTPException(status_code=400, detail=f"Profile rejected: {e.diag.message_primary}")
+    except Exception as e:
+        print(f"[upsert_profile] DB error: {e}")
+        raise HTTPException(status_code=500, detail="Could not save profile")
+
+    return row
+
+
+@app.delete("/me/profile")
+def delete_my_profile(user_id: int = Depends(current_user_id)):
+    """Delete the authenticated user's profile.
+    
+    Returns 204 if deleted, 404 if there was no profile to delete.
+    """
+    with get_connection() as conn:
+        result = conn.execute(
+            "DELETE FROM profiles WHERE user_id = %s",
+            (user_id,),
+        )
+        conn.commit()
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="No profile to delete")
+
+    return {"status": "deleted"}
